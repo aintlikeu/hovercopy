@@ -1,0 +1,49 @@
+// ASCII only: the dialog's Russian texts are set at run time (src/settings_window.rs), so the
+// file compiles the same with windres and rc.exe whatever their code page.
+#include <windows.h>
+
+1 ICON "icon.ico"
+
+// Common controls 6: themed buttons, check boxes and the hotkey field.
+1 24 "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041904B0"
+        BEGIN
+            VALUE "FileDescription", "HoverCopy: copies the word under the mouse cursor"
+            VALUE "ProductName", "HoverCopy"
+            VALUE "FileVersion", "1.0.0"
+            VALUE "ProductVersion", "1.0.0"
+            VALUE "OriginalFilename", "HoverCopy.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x419, 1200
+    END
+END
+
+// Settings dialog; ids match src/settings_window.rs.
+100 DIALOGEX 0, 0, 270, 140
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "HoverCopy"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "Hotkey:", 106, 10, 13, 72, 10
+    CONTROL         "", 101, "msctls_hotkey32", WS_BORDER | WS_TABSTOP, 84, 10, 176, 14
+    LTEXT           "", 107, 84, 27, 176, 18
+    AUTOCHECKBOX    "Show toast", 102, 10, 52, 250, 10
+    AUTOCHECKBOX    "Save debug", 103, 10, 70, 170, 10
+    PUSHBUTTON      "Open folder", 104, 190, 67, 70, 14
+    LTEXT           "", 105, 10, 90, 250, 20
+    DEFPUSHBUTTON   "Save", IDOK, 146, 118, 56, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 206, 118, 56, 14
+END

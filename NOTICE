@@ -1,0 +1,13 @@
+HoverCopy
+Copyright 2026 the HoverCopy authors
+
+This product includes the PP-OCRv4 text detection and recognition models and the
+character dictionary from PaddleOCR (https://github.com/PaddlePaddle/PaddleOCR),
+Copyright PaddlePaddle Authors, licensed under the Apache License, Version 2.0.
+They are embedded in HoverCopy.exe (models/det.onnx, models/rec.onnx, models/keys.txt).
+
+The text detection and recognition processing in src/ocr.rs follows RapidOCR
+(https://github.com/RapidAI/RapidOCR), licensed under the Apache License, Version 2.0.
+
+The Chinese text in tests/fixtures/cjk.png is set in Noto Sans SC (SIL Open Font
+License 1.1); the font itself is not included.

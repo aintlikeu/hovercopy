@@ -1,0 +1,11 @@
+# Build output
+/target/
+/dist/
+
+# Created by the program at runtime
+settings.ini
+/debug/
+selftest_result.txt
+
+# Local screenshots, not part of the repository
+/samples/
