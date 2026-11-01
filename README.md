@@ -11,7 +11,7 @@ locally with PaddleOCR models; nothing is sent anywhere. One portable `HoverCopy
 
 1. Run `HoverCopy.exe`. It lives in the system tray.
 2. Point at a word and press **Ctrl+Alt+N**.
-3. The word is on the clipboard; a short "Скопировано: …" note appears next to the cursor
+3. The word is on the clipboard; a short "Copied: …" note appears next to the cursor
    (it can be turned off).
 
 One word is copied, without punctuation around it (`"hello",` → `hello`) but with the
@@ -20,16 +20,15 @@ spaces, a word is the text between punctuation marks. A press takes about 0.25 s
 
 ## Settings
 
-Tray icon → **Настройки…**: the hotkey, the "Скопировано" note and debug captures. Changes apply
-on Save. They are stored in `%APPDATA%\HoverCopy\settings.ini`, which can also be edited by
-hand (restart to apply).
+Tray icon → **Settings…**: the hotkey, the interface language (English or Russian), the
+"Copied" note and debug captures. Changes apply on Save. They are stored in
+`%APPDATA%\HoverCopy\settings.ini`, which can also be edited by hand (restart to apply).
 
 ## Limitations
 
 - Latin letters, digits, symbols and Chinese are recognized. Cyrillic and Korean are not:
   they are not in the model's alphabet.
 - Very small text (about 11 px) on noisy backgrounds is less reliable.
-- The interface is in Russian.
 
 ## Building
 

@@ -117,7 +117,25 @@ pub fn capture(r: Rect) -> Result<BgrImage, String> {
     }
 }
 
-pub fn set_clipboard(owner: HWND, text: &str) -> Result<(), String> {
+#[derive(Debug)]
+pub enum ClipboardError {
+    /// Another program keeps the clipboard open.
+    Busy,
+    /// A clipboard call failed; its name.
+    Failed(&'static str),
+}
+
+/// English, for `--selftest`; the app words it in the interface language.
+impl std::fmt::Display for ClipboardError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ClipboardError::Busy => f.write_str("the clipboard is held by another program"),
+            ClipboardError::Failed(call) => write!(f, "{call} failed"),
+        }
+    }
+}
+
+pub fn set_clipboard(owner: HWND, text: &str) -> Result<(), ClipboardError> {
     let data = wide(text);
     unsafe {
         open_clipboard(owner)?;
@@ -144,7 +162,7 @@ pub fn set_clipboard(owner: HWND, text: &str) -> Result<(), String> {
             Ok(())
         })();
         CloseClipboard();
-        result.map_err(|step| format!("{step} failed"))
+        result.map_err(ClipboardError::Failed)
     }
 }
 
@@ -183,14 +201,14 @@ pub fn clipboard_roundtrip(text: &str) -> String {
 }
 
 /// Another program may hold the clipboard for a moment.
-fn open_clipboard(owner: HWND) -> Result<(), String> {
+fn open_clipboard(owner: HWND) -> Result<(), ClipboardError> {
     for _ in 0..10 {
         if unsafe { OpenClipboard(owner) } != 0 {
             return Ok(());
         }
         sleep(Duration::from_millis(20));
     }
-    Err("буфер обмена занят другой программой".into())
+    Err(ClipboardError::Busy)
 }
 
 fn rect(r: &RECT) -> Rect {

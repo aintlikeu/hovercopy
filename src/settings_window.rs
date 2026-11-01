@@ -1,9 +1,11 @@
-//! Modal settings dialog (dialog 100 in assets/app.rc): hotkey, toast and debug switches.
+//! Modal settings dialog (dialog 100 in assets/app.rc): hotkey, language, toast and debug
+//! switches. It is shown in the current language; a new language applies after Save.
 
 use std::path::Path;
 use std::ptr::null;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
+use hover_copy::i18n::Lang;
 use hover_copy::settings::{Hotkey, Settings};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -23,6 +25,8 @@ const IDC_OPEN_DEBUG: i32 = 104;
 const IDC_LOCATION: i32 = 105;
 const IDC_HOTKEY_LABEL: i32 = 106;
 const IDC_HOTKEY_HINT: i32 = 107;
+const IDC_LANGUAGE: i32 = 108;
+const IDC_LANGUAGE_LABEL: i32 = 109;
 
 /// The open dialog, if any.
 static OPEN: AtomicIsize = AtomicIsize::new(0);
@@ -80,23 +84,32 @@ unsafe extern "system" fn dialog_proc(dlg: HWND, msg: u32, wparam: WPARAM, lpara
         IDCANCEL => {
             EndDialog(dlg, 0);
         }
-        IDC_OPEN_DEBUG => open_folder(dlg, (*state).debug_dir),
+        IDC_OPEN_DEBUG => open_folder(dlg, (*state).debug_dir, (*state).current.language),
         _ => return 0,
     }
     1
 }
 
 unsafe fn init(dlg: HWND, state: &mut State) {
-    let text = |id: i32, s: &str| SetDlgItemTextW(dlg, id, wide(s).as_ptr());
-    SetWindowTextW(dlg, wide("HoverCopy — настройки").as_ptr());
-    text(IDC_HOTKEY_LABEL, "Сочетание клавиш:");
-    text(IDC_HOTKEY_HINT, "Щёлкните в поле и нажмите сочетание. Нужен Ctrl, Alt или Shift; F1–F24 можно без них.");
-    text(IDC_SHOW_TOAST, "Показывать «Скопировано: …» после копирования");
-    text(IDC_SAVE_DEBUG, "Сохранять снимки для отладки");
-    text(IDC_OPEN_DEBUG, "Открыть папку");
-    text(IDC_LOCATION, &format!("Файл настроек: {}", state.settings_path.display()));
-    text(IDOK, "Сохранить");
-    text(IDCANCEL, "Отмена");
+    let lang = state.current.language;
+    let text = |id: i32, s: String| SetDlgItemTextW(dlg, id, wide(&s).as_ptr());
+    SetWindowTextW(dlg, wide(&lang.settings_title()).as_ptr());
+    text(IDC_HOTKEY_LABEL, lang.hotkey_label());
+    text(IDC_HOTKEY_HINT, lang.hotkey_hint());
+    text(IDC_LANGUAGE_LABEL, lang.language_label());
+    text(IDC_SHOW_TOAST, lang.show_toast_option());
+    text(IDC_SAVE_DEBUG, lang.save_debug_option());
+    text(IDC_OPEN_DEBUG, lang.open_folder());
+    text(IDC_LOCATION, lang.settings_location(state.settings_path.display()));
+    text(IDOK, lang.save());
+    text(IDCANCEL, lang.cancel());
+
+    // Each language is listed by its own name, in Lang::ALL order.
+    for option in Lang::ALL {
+        SendDlgItemMessageW(dlg, IDC_LANGUAGE, CB_ADDSTRING, 0, wide(option.name()).as_ptr() as LPARAM);
+    }
+    let selected = Lang::ALL.iter().position(|&l| l == lang).unwrap_or(0);
+    SendDlgItemMessageW(dlg, IDC_LANGUAGE, CB_SETCURSEL, selected, 0);
 
     SendDlgItemMessageW(dlg, IDC_HOTKEY, HKM_SETHOTKEY, state.current.hotkey.to_field() as WPARAM, 0);
     state.initial_field = field_value(dlg);
@@ -106,13 +119,14 @@ unsafe fn init(dlg: HWND, state: &mut State) {
 }
 
 unsafe fn save(dlg: HWND, state: &mut State) {
+    let lang = state.current.language;
     let field = field_value(dlg);
     let hotkey = if field == state.initial_field {
         Ok(state.current.hotkey.clone())
     } else if field & 0xFF == 0 {
-        Err("Задайте сочетание клавиш: щёлкните в поле и нажмите его.".to_owned())
+        Err(lang.hotkey_empty())
     } else {
-        Hotkey::from_field(field)
+        Hotkey::from_field(field, lang)
     };
     let hotkey = match hotkey {
         Ok(h) => h,
@@ -123,7 +137,9 @@ unsafe fn save(dlg: HWND, state: &mut State) {
         }
     };
     let checked = |id: i32| IsDlgButtonChecked(dlg, id) == BST_CHECKED;
-    let new = Settings { hotkey, show_toast: checked(IDC_SHOW_TOAST), save_debug: checked(IDC_SAVE_DEBUG) };
+    let selected = SendDlgItemMessageW(dlg, IDC_LANGUAGE, CB_GETCURSEL, 0, 0);
+    let language = usize::try_from(selected).ok().and_then(|i| Lang::ALL.get(i).copied()).unwrap_or(lang);
+    let new = Settings { hotkey, language, show_toast: checked(IDC_SHOW_TOAST), save_debug: checked(IDC_SAVE_DEBUG) };
     match (state.apply)(&new) {
         Ok(()) => {
             state.saved = Some(new);
@@ -138,10 +154,10 @@ unsafe fn field_value(dlg: HWND) -> u16 {
     SendDlgItemMessageW(dlg, IDC_HOTKEY, HKM_GETHOTKEY, 0, 0) as u16
 }
 
-unsafe fn open_folder(dlg: HWND, dir: &Path) {
+unsafe fn open_folder(dlg: HWND, dir: &Path, lang: Lang) {
     let _ = std::fs::create_dir_all(dir);
     let path = wide(&dir.to_string_lossy());
     if ShellExecuteW(dlg, wide("open").as_ptr(), path.as_ptr(), null(), null(), SW_SHOWNORMAL) as isize <= 32 {
-        win::message_box(dlg, &format!("Не удалось открыть {}", dir.display()), true);
+        win::message_box(dlg, &lang.open_failed(dir.display()), true);
     }
 }

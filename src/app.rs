@@ -29,7 +29,7 @@ use windows_sys::Win32::UI::Shell::{Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NI
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::settings_window;
-use crate::win::{self, wide};
+use crate::win::{self, wide, ClipboardError};
 
 const WM_APP_TRAY: u32 = WM_APP + 1;
 const WM_APP_RESULT: u32 = WM_APP + 2;
@@ -50,7 +50,14 @@ struct Job {
     scale: f32,
 }
 
-type JobResult = Result<Option<String>, String>;
+/// Worded by the UI thread, in the current interface language.
+enum JobError {
+    ModelsNotLoaded(String),
+    Ocr(String),
+    Crashed,
+}
+
+type JobResult = Result<Option<String>, JobError>;
 
 struct Ui {
     main: HWND,
@@ -85,6 +92,10 @@ fn with_ui<R>(f: impl FnOnce(&mut Ui) -> R) -> Option<R> {
 }
 
 pub fn run() {
+    // Settings come first, so that even "already running" is in the user's language.
+    let (settings_path, debug_dir) = data_paths();
+    let (settings, settings_error) = load_settings(&settings_path);
+    let lang = settings.language;
     unsafe {
         if SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == 0 {
             SetProcessDPIAware();
@@ -92,16 +103,10 @@ pub fn run() {
         // Stays open until the process exits.
         CreateMutexW(null(), 0, wide("Local\\HoverCopy.SingleInstance").as_ptr());
         if GetLastError() == ERROR_ALREADY_EXISTS {
-            win::message_box(null_mut(), "HoverCopy уже запущен — его значок в трее, рядом с часами.", false);
+            win::message_box(null_mut(), &lang.already_running(), false);
             return;
         }
     }
-
-    let (settings_path, debug_dir) = data_paths();
-    let (settings, settings_error) = match load_settings(&settings_path) {
-        Ok(s) => (s, None),
-        Err(e) => (Settings::default(), Some(e)),
-    };
 
     unsafe {
         let controls = INITCOMMONCONTROLSEX { dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32, dwICC: ICC_HOTKEY_CLASS };
@@ -136,7 +141,7 @@ pub fn run() {
             null(),
         );
         if main.is_null() || toast.is_null() {
-            win::message_box(null_mut(), &format!("Не удалось создать окно (ошибка {}).", GetLastError()), true);
+            win::message_box(null_mut(), &lang.window_failed(GetLastError()), true);
             return;
         }
         SetLayeredWindowAttributes(toast, 0, 235, LWA_ALPHA);
@@ -174,11 +179,10 @@ pub fn run() {
         tray(NIM_ADD);
 
         if let Some(e) = settings_error {
-            let text = format!("Ошибка в {}:\n{e}\n\nПока действуют настройки по умолчанию.", settings_path.display());
-            win::message_box(null_mut(), &text, true);
+            win::message_box(null_mut(), &lang.settings_file_error(settings_path.display(), e), true);
         }
         if !hotkey_active {
-            win::message_box(null_mut(), &format!("Сочетание {hotkey_label} уже занято другой программой. Выберите другое."), true);
+            win::message_box(null_mut(), &lang.hotkey_taken(&hotkey_label), true);
             open_settings();
         }
 
@@ -243,7 +247,7 @@ unsafe extern "system" fn toast_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
 }
 
 fn on_hotkey() {
-    let Some((false, toast)) = with_ui(|u| (u.busy, u.toast)) else {
+    let Some((false, toast, lang)) = with_ui(|u| (u.busy, u.toast, u.settings.language)) else {
         return;
     };
     // The previous toast may still cover nearby text: take it off the screen and wait for the
@@ -259,7 +263,7 @@ fn on_hotkey() {
     let (region, scale) = capture_region(win::virtual_screen(), cx, cy, win::monitor_at(cx, cy).dpi);
     let capture = match win::capture(region) {
         Ok(c) => c,
-        Err(e) => return show_toast(&format!("Не удалось снять экран: {e}"), false),
+        Err(e) => return show_toast(&lang.capture_failed(e), false),
     };
     let job = Job { capture, cursor: (cx - region.x, cy - region.y), scale };
     if with_ui(|u| {
@@ -267,7 +271,7 @@ fn on_hotkey() {
         u.busy
     }) == Some(false)
     {
-        show_toast("Распознавание остановилось — перезапустите HoverCopy", false);
+        show_toast(&lang.recognition_stopped(), false);
     }
 }
 
@@ -281,17 +285,20 @@ fn on_result() {
     }) else {
         return;
     };
-    let Some((main, show_copied)) = with_ui(|u| (u.main, u.settings.show_toast)) else {
+    let Some((main, show_copied, lang)) = with_ui(|u| (u.main, u.settings.show_toast, u.settings.language)) else {
         return;
     };
     match result {
         Ok(Some(word)) => match win::set_clipboard(main, &word) {
-            Ok(()) if show_copied => show_toast(&format!("Скопировано: {word}"), true),
+            Ok(()) if show_copied => show_toast(&lang.copied(&word), true),
             Ok(()) => {}
-            Err(e) => show_toast(&format!("{word} — не скопировано: {e}"), false),
+            Err(ClipboardError::Busy) => show_toast(&lang.not_copied(&word, lang.clipboard_busy()), false),
+            Err(e) => show_toast(&lang.not_copied(&word, e), false),
         },
-        Ok(None) => show_toast("Текст не найден", false),
-        Err(e) => show_toast(&format!("Ошибка: {e}"), false),
+        Ok(None) => show_toast(&lang.text_not_found(), false),
+        Err(JobError::ModelsNotLoaded(e)) => show_toast(&lang.models_failed(e), false),
+        Err(JobError::Ocr(e)) => show_toast(&lang.error(e), false),
+        Err(JobError::Crashed) => show_toast(&lang.recognition_crashed(), false),
     }
 }
 
@@ -333,15 +340,15 @@ fn show_toast(text: &str, ok: bool) {
 }
 
 fn show_menu(hwnd: HWND) {
-    let Some(tip) = with_ui(|u| tip(u)) else {
+    let Some((tip, lang)) = with_ui(|u| (tip(u), u.settings.language)) else {
         return;
     };
     unsafe {
         let menu = CreatePopupMenu();
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, wide(&tip).as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
-        AppendMenuW(menu, MF_STRING, CMD_SETTINGS, wide("Настройки…").as_ptr());
-        AppendMenuW(menu, MF_STRING, CMD_EXIT, wide("Выход").as_ptr());
+        AppendMenuW(menu, MF_STRING, CMD_SETTINGS, wide(&lang.menu_settings()).as_ptr());
+        AppendMenuW(menu, MF_STRING, CMD_EXIT, wide(&lang.menu_exit()).as_ptr());
         let (x, y) = win::cursor_pos();
         // Documented quirk: without these two calls the menu does not close on an outside click.
         SetForegroundWindow(hwnd);
@@ -368,18 +375,20 @@ fn open_settings() {
         return;
     };
     unsafe { UnregisterHotKey(main, HOTKEY_ID) };
+    // Messages while the dialog is open stay in its language, also when switching language.
+    let lang = current.language;
     let mut apply = |new: &Settings| -> Result<(), String> {
         if !register_hotkey(main, &new.hotkey) {
-            return Err(format!("Сочетание {} уже занято другой программой. Выберите другое.", new.hotkey.label));
+            return Err(lang.hotkey_taken(&new.hotkey.label));
         }
         save_settings(&path, new).map_err(|e| {
             unsafe { UnregisterHotKey(main, HOTKEY_ID) };
-            format!("Не удалось сохранить {}:\n{e}", path.display())
+            lang.save_failed(path.display(), e)
         })
     };
     let saved = settings_window::show(main, &current, &path, &debug_dir, &mut apply);
     if unsafe { IsWindow(main) } == 0 {
-        return; // "Выход" was chosen while the dialog was open
+        return; // Exit was chosen in the tray menu while the dialog was open
     }
     let active = saved.is_some() || register_hotkey(main, &current.hotkey);
     with_ui(|u| {
@@ -391,7 +400,7 @@ fn open_settings() {
     });
     tray(NIM_MODIFY);
     if !active {
-        win::message_box(null_mut(), &format!("Сочетание {} уже занято другой программой.", current.hotkey.label), true);
+        win::message_box(null_mut(), &lang.hotkey_taken(&current.hotkey.label), true);
     }
 }
 
@@ -400,10 +409,11 @@ fn register_hotkey(main: HWND, hotkey: &Hotkey) -> bool {
 }
 
 fn tip(u: &Ui) -> String {
+    let lang = u.settings.language;
     if u.hotkey_active {
-        format!("HoverCopy — копировать текст под курсором: {}", u.settings.hotkey.label)
+        lang.tray_tip(&u.settings.hotkey.label)
     } else {
-        "HoverCopy — сочетание клавиш не работает, откройте «Настройки»".to_owned()
+        lang.tray_tip_no_hotkey()
     }
 }
 
@@ -435,16 +445,23 @@ fn data_paths() -> (PathBuf, PathBuf) {
     (settings_dir.join("settings.ini"), debug_dir)
 }
 
-/// A missing file is created with defaults; a broken one is reported and left as it is.
-fn load_settings(path: &Path) -> Result<Settings, String> {
+/// The settings and, if the file is broken, the error to report. A missing file is created with
+/// defaults; a broken one is left as it is and defaults are used, in the language it asks for.
+fn load_settings(path: &Path) -> (Settings, Option<String>) {
     match fs::read(path) {
         // Lossy: a file saved in a legacy code page only garbles the comments, keys are ASCII.
-        Ok(bytes) => Settings::parse(&String::from_utf8_lossy(&bytes)),
+        Ok(bytes) => {
+            let text = String::from_utf8_lossy(&bytes);
+            match Settings::parse(&text) {
+                Ok(s) => (s, None),
+                Err(e) => (Settings { language: Settings::language_in(&text), ..Settings::default() }, Some(e)),
+            }
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             let _ = save_settings(path, &Settings::default());
-            Ok(Settings::default())
+            (Settings::default(), None)
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => (Settings::default(), Some(e.to_string())),
     }
 }
 
@@ -463,18 +480,18 @@ fn worker(jobs: Receiver<Job>, results: Sender<JobResult>, main: isize, save_deb
     // detection input is the same on every monitor (see capture_region), so prepare it too.
     let mut ocr = Ocr::new()
         .and_then(|mut ocr| ocr.prepare_detection(CAPTURE_W as usize, CAPTURE_H as usize, DET_SCALE_96).map(|_| ocr))
-        .map_err(|e| format!("не загрузились модели OCR: {e}"));
+        .map_err(|e| e.to_string());
     for job in jobs {
         let result = match ocr.as_mut() {
-            Err(e) => Err(e.clone()),
+            Err(e) => Err(JobError::ModelsNotLoaded(e.clone())),
             Ok(ocr) => catch_unwind(AssertUnwindSafe(|| -> JobResult {
-                let out = hover_copy::find_word(ocr, &job.capture, job.cursor, job.scale).map_err(|e| e.to_string())?;
+                let out = hover_copy::find_word(ocr, &job.capture, job.cursor, job.scale).map_err(|e| JobError::Ocr(e.to_string()))?;
                 if save_debug.load(Ordering::Relaxed) {
                     write_debug(&debug_dir, &job, &out);
                 }
                 Ok(out.word)
             }))
-            .unwrap_or_else(|_| Err("сбой распознавания".into())),
+            .unwrap_or(Err(JobError::Crashed)),
         };
         if results.send(result).is_err() {
             break;

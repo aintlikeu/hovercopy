@@ -2,6 +2,7 @@
 
 pub mod bgr;
 pub mod finder;
+pub mod i18n;
 pub mod ocr;
 pub mod settings;
 

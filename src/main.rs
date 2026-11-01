@@ -19,7 +19,7 @@ fn main() {
 
     #[cfg(not(windows))]
     {
-        eprintln!("Графический режим работает только в Windows.\nПроверка распознавания: HoverCopy --selftest IMAGE X Y [DPI]");
+        eprintln!("The interface works on Windows only.\nTo check recognition: HoverCopy --selftest IMAGE X Y [DPI]");
         std::process::exit(2);
     }
 }
