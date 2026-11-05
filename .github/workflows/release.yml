@@ -1,13 +1,15 @@
-# Builds HoverCopy.exe on Windows.
-# - Push a tag vX.Y.Z (equal to the version in Cargo.toml): tests, build, GitHub release with the exe.
-# - Run manually (Actions → Release → Run workflow): tests and build; the exe is attached to the
-#   run as an artifact, no release is made.
+# Builds HoverCopy.exe on Windows: tests, build, and the exe attached to the run as an artifact.
+# - Push to main: when the version in Cargo.toml has no release yet, release vX.Y.Z is made with
+#   the exe, together with its tag. So a release is: bump the version, push.
+# - Push a tag vX.Y.Z (equal to the version in Cargo.toml): the same release, at that tag.
+# - Run manually (Actions → Release → Run workflow): build only, no release.
 # The build job, which runs third-party code (actions, crates), has a read-only token; only the
 # release job, with no third-party actions, may write. Actions are pinned to commits.
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -22,6 +24,8 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,6 +33,7 @@ jobs:
 
       # Same version in Cargo.toml, app.rc and app.manifest, and in the tag on a release.
       - name: Versions match
+        id: version
         shell: pwsh
         env:
           TAG: ${{ github.ref_name }}
@@ -50,6 +55,7 @@ jobs:
           }
           if ($bad) { exit 1 }
           Write-Output "Version $v"
+          "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Rust
         shell: pwsh
@@ -80,21 +86,38 @@ jobs:
 
   release:
     needs: build
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
+    # One release at a time: a push to main and its tag must not both create it.
+    concurrency:
+      group: publish-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v${{ needs.build.outputs.version }}
     steps:
+      - name: Is this version released?
+        id: check
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::$TAG is already released; bump the version in Cargo.toml for a new release."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.check.outputs.new == 'true'
         with:
           name: HoverCopy
           path: dist
 
+      # On a push to main the tag is made at the built commit; a pushed tag is used as it is.
       - name: GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+        if: steps.check.outputs.new == 'true'
         run: |
           gh release create "$TAG" dist/HoverCopy.exe dist/HoverCopy.exe.sha256 \
-            --repo "$GITHUB_REPOSITORY" --title "HoverCopy $TAG" --generate-notes
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "HoverCopy $TAG" --generate-notes
