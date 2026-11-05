@@ -1,17 +1,20 @@
 //! Modal settings dialog (dialog 100 in assets/app.rc): hotkey, language, toast and debug
 //! switches. It is shown in the current language; a new language applies after Save.
+//!
+//! The hotkey field takes every key pressed in it as the new shortcut, so it gets the focus only
+//! when the user clicks it or tabs to it: not when the dialog opens or comes back to the front.
 
 use std::path::Path;
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use hover_copy::i18n::Lang;
 use hover_copy::settings::{Hotkey, Settings};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{CheckDlgButton, IsDlgButtonChecked, BST_CHECKED, BST_UNCHECKED, HKM_GETHOTKEY, HKM_SETHOTKEY};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
-use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus, VK_ESCAPE};
+use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, ShellExecuteW};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::win::{self, wide};
@@ -42,6 +45,8 @@ struct State<'a> {
     /// What the hotkey field showed at start: the field cannot show Win, so an untouched field
     /// keeps the current hotkey as it is.
     initial_field: u16,
+    /// The control that had the focus when the dialog went to the background.
+    focus_before: HWND,
     saved: Option<Settings>,
 }
 
@@ -56,7 +61,7 @@ pub fn focus_if_open() -> bool {
 
 /// Shows the dialog until Save succeeds or the user cancels; returns the saved settings.
 pub fn show<'a>(owner: HWND, current: &'a Settings, settings_path: &'a Path, debug_dir: &'a Path, apply: &'a mut Apply<'a>) -> Option<Settings> {
-    let mut state = State { current, settings_path, debug_dir, apply, initial_field: 0, saved: None };
+    let mut state = State { current, settings_path, debug_dir, apply, initial_field: 0, focus_before: null_mut(), saved: None };
     unsafe {
         DialogBoxParamW(GetModuleHandleW(null()), DIALOG as *const u16, owner, Some(dialog_proc), &mut state as *mut State as LPARAM);
     }
@@ -68,15 +73,23 @@ unsafe extern "system" fn dialog_proc(dlg: HWND, msg: u32, wparam: WPARAM, lpara
         SetWindowLongPtrW(dlg, GWLP_USERDATA, lparam);
         OPEN.store(dlg as isize, Ordering::Relaxed);
         init(dlg, &mut *(lparam as *mut State));
+        SetWindowSubclass(GetDlgItem(dlg, IDC_HOTKEY), Some(hotkey_field_proc), 0, 0);
         SetForegroundWindow(dlg);
-        return 1; // focus the first control: the hotkey field
+        focus(dlg, GetDlgItem(dlg, IDOK));
+        return 0; // the focus is set
     }
     if msg == WM_DESTROY {
         OPEN.store(0, Ordering::Relaxed);
         return 0;
     }
     let state = GetWindowLongPtrW(dlg, GWLP_USERDATA) as *mut State;
-    if msg != WM_COMMAND || state.is_null() {
+    if state.is_null() {
+        return 0;
+    }
+    if msg == WM_ACTIVATE {
+        return on_activate(dlg, &mut *state, wparam);
+    }
+    if msg != WM_COMMAND {
         return 0;
     }
     match (wparam & 0xFFFF) as i32 {
@@ -88,6 +101,53 @@ unsafe extern "system" fn dialog_proc(dlg: HWND, msg: u32, wparam: WPARAM, lpara
         _ => return 0,
     }
     1
+}
+
+/// Replaces the dialog manager's focus handling on activation: it would put the focus back into
+/// the hotkey field, and on the first activation it would pick the field as the first control.
+unsafe fn on_activate(dlg: HWND, state: &mut State, wparam: WPARAM) -> isize {
+    let active = (wparam & 0xFFFF) as u32 != WA_INACTIVE;
+    let minimized = (wparam >> 16) & 0xFFFF != 0;
+    if !active {
+        let focused = GetFocus();
+        state.focus_before = if !focused.is_null() && IsChild(dlg, focused) != 0 { focused } else { null_mut() };
+        return 0; // the dialog manager remembers the focus too
+    }
+    if minimized {
+        return 0;
+    }
+    let field = GetDlgItem(dlg, IDC_HOTKEY);
+    let target = if state.focus_before.is_null() || state.focus_before == field { GetDlgItem(dlg, IDOK) } else { state.focus_before };
+    focus(dlg, target);
+    1 // done: no default focus handling
+}
+
+/// Focuses a control the way the dialog manager does, keeping the default button right.
+unsafe fn focus(dlg: HWND, control: HWND) {
+    SendMessageW(dlg, WM_NEXTDLGCTL, control as WPARAM, 1);
+}
+
+/// The hotkey field: Esc clears it. While it holds a shortcut, the field takes Esc from the dialog,
+/// which would otherwise close the dialog as Cancel; once it is empty, Esc closes the dialog again.
+unsafe extern "system" fn hotkey_field_proc(field: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _id: usize, _data: usize) -> LRESULT {
+    let is_esc = |message: u32, key: WPARAM| message == WM_KEYDOWN && key == VK_ESCAPE as WPARAM;
+    match msg {
+        WM_GETDLGCODE if lparam != 0 => {
+            let m = &*(lparam as *const MSG);
+            if is_esc(m.message, m.wParam) && SendMessageW(field, HKM_GETHOTKEY, 0, 0) != 0 {
+                return DefSubclassProc(field, msg, wparam, lparam) | DLGC_WANTMESSAGE as LRESULT;
+            }
+        }
+        WM_KEYDOWN if is_esc(msg, wparam) => {
+            SendMessageW(field, HKM_SETHOTKEY, 0, 0);
+            return 0;
+        }
+        WM_NCDESTROY => {
+            RemoveWindowSubclass(field, Some(hotkey_field_proc), 0);
+        }
+        _ => {}
+    }
+    DefSubclassProc(field, msg, wparam, lparam)
 }
 
 unsafe fn init(dlg: HWND, state: &mut State) {

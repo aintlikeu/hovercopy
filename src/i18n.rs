@@ -170,8 +170,8 @@ impl Lang {
 
     pub fn hotkey_hint(self) -> String {
         self.pick(
-            "Click the field and press the shortcut. Use Ctrl, Alt or Shift; F1–F24 also work alone.",
-            "Щёлкните в поле и нажмите сочетание. Нужен Ctrl, Alt или Shift; F1–F24 можно без них.",
+            "Click the field and press the shortcut. Use Ctrl, Alt or Shift; F1–F24 also work alone. Esc clears the field.",
+            "Щёлкните в поле и нажмите сочетание. Нужен Ctrl, Alt или Shift; F1–F24 можно без них. Esc очищает поле.",
         )
     }
 

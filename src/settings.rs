@@ -63,9 +63,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            hotkey: parse_hotkey("ctrl+alt+n", Lang::En).expect("valid default"),
+            hotkey: parse_hotkey("f8", Lang::En).expect("valid default"),
             language: Lang::default(),
-            show_toast: true,
+            show_toast: false,
             save_debug: false,
         }
     }

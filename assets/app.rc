@@ -32,7 +32,7 @@ BEGIN
 END
 
 // Settings dialog; ids match src/settings_window.rs.
-100 DIALOGEX 0, 0, 270, 160
+100 DIALOGEX 0, 0, 270, 168
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 EXSTYLE WS_EX_APPWINDOW
 CAPTION "HoverCopy"
@@ -40,13 +40,13 @@ FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
     LTEXT           "Hotkey:", 106, 10, 13, 72, 10
     CONTROL         "", 101, "msctls_hotkey32", WS_BORDER | WS_TABSTOP, 84, 10, 176, 14
-    LTEXT           "", 107, 84, 27, 176, 18
-    LTEXT           "Language:", 109, 10, 53, 72, 10
-    COMBOBOX        108, 84, 50, 100, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    AUTOCHECKBOX    "Show toast", 102, 10, 74, 250, 10
-    AUTOCHECKBOX    "Save debug", 103, 10, 92, 170, 10
-    PUSHBUTTON      "Open folder", 104, 190, 89, 70, 14
-    LTEXT           "", 105, 10, 112, 250, 20
-    DEFPUSHBUTTON   "Save", IDOK, 146, 138, 56, 14
-    PUSHBUTTON      "Cancel", IDCANCEL, 206, 138, 56, 14
+    LTEXT           "", 107, 84, 27, 176, 26
+    LTEXT           "Language:", 109, 10, 61, 72, 10
+    COMBOBOX        108, 84, 58, 100, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "Show toast", 102, 10, 82, 250, 10
+    AUTOCHECKBOX    "Save debug", 103, 10, 100, 170, 10
+    PUSHBUTTON      "Open folder", 104, 190, 97, 70, 14
+    LTEXT           "", 105, 10, 120, 250, 20
+    DEFPUSHBUTTON   "Save", IDOK, 146, 146, 56, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 206, 146, 56, 14
 END

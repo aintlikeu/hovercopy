@@ -10,7 +10,7 @@ locally with PaddleOCR models; nothing is sent anywhere. One portable `HoverCopy
 ## Usage
 
 1. Run `HoverCopy.exe`. It lives in the system tray.
-2. Point at a word and press **Ctrl+Alt+N**.
+2. Point at a word and press **F8**.
 3. The word is on the clipboard; a short "Copied: …" note appears next to the cursor
    (it can be turned off).
 
@@ -21,8 +21,9 @@ spaces, a word is the text between punctuation marks. A press takes about 0.25 s
 ## Settings
 
 Tray icon → **Settings…**: the hotkey, the interface language (English or Russian), the
-"Copied" note and debug captures. Changes apply on Save. They are stored in
-`%APPDATA%\HoverCopy\settings.ini`, which can also be edited by hand (restart to apply).
+"Copied" note (off by default) and debug captures. Esc clears the hotkey field. Changes
+apply on Save. They are stored in `%APPDATA%\HoverCopy\settings.ini`, which can also be
+edited by hand (restart to apply).
 
 ## Limitations
 
