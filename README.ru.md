@@ -39,6 +39,11 @@
 с компонентом «Desktop development with C++»), на Linux — кросс-сборка `./build.sh` (нужны
 target `x86_64-pc-windows-gnu` и `gcc-mingw-w64-x86-64`). Результат — `dist/HoverCopy.exe`.
 
+Релизы собирает GitHub Actions (`.github/workflows/release.yml`): укажите версию в
+`Cargo.toml`, `assets/app.rc` и `assets/app.manifest`, закоммитьте и отправьте тег с этой
+версией, например `git tag v1.2.0 && git push origin v1.2.0`. Exe и его SHA-256 появятся в
+Releases. Ручной запуск workflow только собирает exe и прикладывает его к запуску.
+
 Тесты: `cargo test --profile fast -- --nocapture` выводит точность распознавания на тестовых
 картинках с разными фонами, шрифтами и размерами (`tests/fixtures`, их делает
 `tools/make_fixtures.py`).

@@ -38,6 +38,11 @@ With [Rust](https://rustup.rs): `build.bat` on Windows (needs Visual Studio Buil
 `x86_64-pc-windows-gnu` target and `gcc-mingw-w64-x86-64`). The result is
 `dist/HoverCopy.exe`.
 
+Releases are built by GitHub Actions (`.github/workflows/release.yml`): set the version in
+`Cargo.toml`, `assets/app.rc` and `assets/app.manifest`, commit, then push a tag with that
+version, e.g. `git tag v1.2.0 && git push origin v1.2.0`. The exe and its SHA-256 appear in
+Releases. Running the workflow by hand only builds the exe and attaches it to the run.
+
 Tests: `cargo test --profile fast -- --nocapture` prints recognition accuracy on test images
 with different backgrounds, fonts and sizes (`tests/fixtures`, made by
 `tools/make_fixtures.py`).
